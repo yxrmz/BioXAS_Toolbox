@@ -18,6 +18,7 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
 import h5py
 import matplotlib as mpl
+from matplotlib.figure import Figure
 mpl.use('Qt5Agg')
 from matplotlib.backends.backend_qt5agg import (
         FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
@@ -1231,7 +1232,7 @@ class Ge32Explorer(QtGui.QMainWindow):
         pixPanel.setLayout(self.pixLayout)
         pixPanel.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Fixed)
 
-        self.mplFig = mpl.figure.Figure()
+        self.mplFig = Figure()
         self.mplAx = self.mplFig.add_subplot(111)
         paletteWidget = FigureCanvas(self.mplFig)
         self.load_data(None)
