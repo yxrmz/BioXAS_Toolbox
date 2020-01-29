@@ -1467,7 +1467,13 @@ class Ge32Explorer(QtGui.QMainWindow):
                 self.f = h5py.File(fileName, 'r')
                 self.scanGroup = self.f['scan']  # BioXAS scan group name
                 self.eaxis = np.array(self.scanGroup['AxisValues::BioXASEnergyControl'])
-    #        self.eaxis = np.array(self.scanGroup['EnergySetpoint'])
+                #  It's a workaround for acquaman bug/feature, 
+                #  when the next region starts at the same energy
+                #  where the previous region ends
+                diffTest = np.diff(self.eaxis) <= 0
+                if any(diffTest):
+                    self.eaxis[np.where(diffTest)] -= 1e-3
+                #  End fix
                 self.dwellTime = np.array(self.scanGroup['ScalerDwellTimeFeedback'])
                 self.ch1 = np.array(self.scanGroup['I0Detector_darkCorrected'])
                 self.ch2 = np.array(self.scanGroup['I1Detector_darkCorrected'])
