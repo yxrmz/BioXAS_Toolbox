@@ -6,6 +6,7 @@ Created on Apr 26. Modified by chernir on Jan 22 2020
 """
 import time
 import os
+import re
 from functools import partial
 import json
 import itertools
@@ -24,6 +25,7 @@ from matplotlib.backends.backend_qt5agg import (
         FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
 from matplotlib.widgets import SpanSelector
 pg.setConfigOptions(antialias=False)
+from acquamanDataFormats import dataFormats
 
 isTest = True
 needFY = True
@@ -33,14 +35,16 @@ FRAME_CHUNK_GENERAL = 1
 FRAME_CHUNK_MU = 20
 FRAME_CHUNK_EXAFS = 50
 
-DETECTOR_NCHANNELS = 4
-DETECTOR_SUM_STR = 'BioXASMainOutboardDetector'
-DETECTOR_PIX_STR = 'BioXASMainOutboardDetectorRawSpectrum{}'
+DETECTOR_NCHANNELS = 1
+#DETECTOR_SUM_STR = 'BioXASMainOutboardDetector'
+#DETECTOR_PIX_STR = 'BioXASMainOutboardDetectorRawSpectrum{}'
 #ROOTPATH = r"X:\bioxas-m\AcquamanMainData\users"
 ROOTPATH = ""
 
-
 FLUOBIN = 10
+
+
+
 
 
 
@@ -513,18 +517,24 @@ class EXAFS_Extractor(QtCore.QObject):
 
     def calculate(self):
 
+        xax = np.copy(self.e)
+        diffTest = np.diff(xax) <= 0
+        if any(diffTest):
+            xax[np.where(diffTest)] -= 1e-3
+
         try:
             mu = self.muT
-            kres = self.k(self.e, mu)
+            kres = self.k(xax, mu)
             if kres is None:
                 self.terminate()
                 return
             ie0, k, kmin_idx = kres
-            pre_edge = self.pre_edge(self.e, ie0, mu)
+
+            pre_edge = self.pre_edge(xax, ie0, mu)
             if pre_edge is None:
                 self.terminate()
                 return
-            chi = self.chi(self.e, ie0, mu, pre_edge, k, kmin_idx)
+            chi = self.chi(xax, ie0, mu, pre_edge, k, kmin_idx)
             winFT = self.hann_win(k, 2., max(k), 1.0)
             ft = self.make_ft(k, chi, winFT)
             ks = [k]
@@ -537,19 +547,19 @@ class EXAFS_Extractor(QtCore.QObject):
             
         try:
             for mu in self.muFs:
-                kres = self.k(self.e, mu)
+                kres = self.k(xax, mu)
                 if kres is None:
                     self.terminate()
                     return
                 ie0, k, kmin_idx = kres
 #                print(ie0, k, kmin_idx)
-                pre_edge = self.pre_edge(self.e, ie0, mu)
+                pre_edge = self.pre_edge(xax, ie0, mu)
                 if pre_edge is None:
                     self.terminate()
                     return
                 pre_edge[:] *= 0
 #                print(pre_edge)
-                chi = self.chi(self.e, ie0, mu, pre_edge, k, kmin_idx)
+                chi = self.chi(xax, ie0, mu, pre_edge, k, kmin_idx)
                 winFT = self.hann_win(k, 2., max(k), 1.0)
                 ft = self.make_ft(k, chi, winFT)
                 ks.append(k)
@@ -1190,8 +1200,12 @@ class Ge32Explorer(QtGui.QMainWindow):
 #        self.help_menu.addAction('&About', self.about)
 
         self.main_widget = QtGui.QWidget(self)
+        self.DETECTOR_PIX_STR = ""
+        self.DETECTOR_SUM_STR = ""
 
         hl = QtGui.QHBoxLayout(self.main_widget)
+
+
 
         canvasSplitter = QtGui.QSplitter()
         canvasSplitter.setChildrenCollapsible(False)
@@ -1208,7 +1222,6 @@ class Ge32Explorer(QtGui.QMainWindow):
         fileNav.sortByColumn(0, QtCore.Qt.AscendingOrder)
         fileNav.setModel(fileModel)
         fileNav.doubleClicked.connect(self.load_data)
-#        fileNav.
 
         lw = QtGui.QWidget(self.main_widget)
         l = QtGui.QVBoxLayout()
@@ -1227,8 +1240,10 @@ class Ge32Explorer(QtGui.QMainWindow):
         pixPanel.setTitle('MCA Detector channels')
         self.pixLayout = QtGui.QGridLayout(self.main_widget)
         self.pixList = []
-        for ipix in range(DETECTOR_NCHANNELS):
+        for ipix in range(32):
             self.add_pix_cb(ipix)
+        for ipix in range(31):
+            self.pixList[ipix+1].setVisible(False)
         pixPanel.setLayout(self.pixLayout)
         pixPanel.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Fixed)
 
@@ -1243,19 +1258,10 @@ class Ge32Explorer(QtGui.QMainWindow):
                                     aspect='auto',
                                     interpolation='none',
                                     origin='lower')
-#        yax, xax = np.meshgrid(np.linspace(0, 1023*FLUOBIN, 1024), self.eaxis)
-#        print(yax.shape, xax.shape, self.sumChannel.shape)
-#        t0 = time.time()
-#        self.im = self.mplAx.pcolormesh(xax, yax,self.sumChannel, 
-#                                        cmap='jet',  shading='gouraud')
-#        print("pcolormesh takes", time.time()-t0, "s to plot")
-#        dc = MyDynamicMplCanvas(self.main_widget, width=5, height=4, dpi=100)
+
         self.slider.valueChanged.connect(self.show_frame)
-#        self.sliderValue = slider.value()
         self.addToolBar(NavigationToolbar(paletteWidget, self))
         self.pixDataReady.connect(self.exafs_monitor.dataReceiver.hdf_data_listener)
-
-# set useblit True on gtkagg for enhanced performance
         self.span = SpanSelector(self.mplAx, self.onROIselect, 'vertical',
                                  useblit=True, rectprops=dict(alpha=0.3,
                                                               facecolor='white'),
@@ -1274,29 +1280,35 @@ class Ge32Explorer(QtGui.QMainWindow):
         
         infoWidget = QtGui.QGroupBox()
         vlayout = QtGui.QVBoxLayout()
-        roiWidget = QtGui.QGroupBox('ROI')
-        hlayout = QtGui.QHBoxLayout()
-        scaleValidator = QtGui.QDoubleValidator()
-        scaleValidator.setRange(0, 4095*FLUOBIN, 3)
-        
-        roiminEdit = QtGui.QLineEdit('0')
-        roiminEdit.setValidator(scaleValidator)
-        roiminEdit.editingFinished.connect(lambda: self.onROIselect(None, None))
-        roiminEdit.setMaximumWidth(60)
-        roimaxEdit = QtGui.QLineEdit('40950')
-        roimaxEdit.setValidator(scaleValidator)
-        roimaxEdit.setMaximumWidth(60)
-        
-        self.roiEdits = [roiminEdit, roimaxEdit]
-        label = QtGui.QLabel('Min')
-        hlayout.addWidget(label)
-        hlayout.addWidget(roiminEdit)
-        hlayout.addStretch(1)
-        label = QtGui.QLabel('Max')
-        hlayout.addWidget(label)
-        hlayout.addWidget(roimaxEdit)
-        roiWidget.setLayout(hlayout)
-        vlayout.addWidget(roiWidget)
+
+        roiPanel = QtGui.QGroupBox('ROI')
+        panelLayout = QtGui.QVBoxLayout()
+        roiScroll = QtGui.QScrollArea()
+        roiWidget = QtGui.QWidget()
+        self.roiButtonGroup = QtGui.QButtonGroup()
+        self.roiButtonGroup.buttonClicked.connect(self.updateROIs)
+        roiLayout = QtGui.QVBoxLayout()        
+        self.roiPanels = []
+        for chan in range(32):
+            roiChan = ROIPanel(self.roiButtonGroup, chan, 0, 0, 0)
+            roiChan.roimaxEdit.editingFinished.connect(lambda: self.onROIselect(None, None))
+            roiChan.roiminEdit.editingFinished.connect(lambda: self.onROIselect(None, None))
+            roiChan.elineEdit.editingFinished.connect(
+                    lambda: self.plot_lines(float(roiChan.elineEdit.text()), 1))
+            roiLayout.addWidget(roiChan)
+            if chan > 0:
+                roiChan.setVisible(False)
+            self.roiPanels.append(roiChan)
+        roiLayout.addStretch(1)
+        self.roiButtonGroup.button(0).setChecked(True)
+        self.currentROIPanel = self.roiPanels[0]
+        roiWidget.setLayout(roiLayout)
+        roiScroll.setWidget(roiWidget)
+        roiScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        roiScroll.setWidgetResizable(True)
+        panelLayout.addWidget(roiScroll)
+        roiPanel.setLayout(panelLayout)
+        vlayout.addWidget(roiPanel)
 
         linesWidget = QtGui.QGroupBox("Lines")
         hlayout = QtGui.QVBoxLayout()
@@ -1306,12 +1318,6 @@ class Ge32Explorer(QtGui.QMainWindow):
                 float(self.edgeEdit.text()), 0))
         hlayout.addWidget(label)
         hlayout.addWidget(self.edgeEdit)
-        label = QtGui.QLabel('Emission line, eV')
-        self.elineEdit = QtGui.QLineEdit('0')
-        self.elineEdit.editingFinished.connect(lambda: self.plot_lines(
-                float(self.elineEdit.text()), 1))
-        hlayout.addWidget(label)
-        hlayout.addWidget(self.elineEdit)
         linesWidget.setLayout(hlayout)
         vlayout.addWidget(linesWidget)
 
@@ -1331,7 +1337,7 @@ class Ge32Explorer(QtGui.QMainWindow):
         plotPropWidget.setLayout(hlayout)
         vlayout.addWidget(plotPropWidget)
 
-        vlayout.addStretch(1)
+#        vlayout.addStretch(1)
 
         exportGroup = QtGui.QGroupBox("Export")
         agLayout = QtGui.QVBoxLayout()
@@ -1370,6 +1376,19 @@ class Ge32Explorer(QtGui.QMainWindow):
         self.main_widget.setFocus()
         self.setCentralWidget(self.main_widget)
 
+    def updateROIs(self, buttonId):
+        try:
+            sender = self.sender()
+            panelId = int(sender.checkedId())
+        except:
+            panelId = buttonId
+        self.currentROIPanel = self.roiPanels[panelId]
+        ymin = np.float32(self.currentROIPanel.roiminEdit.text())
+        ymax = np.float32(self.currentROIPanel.roimaxEdit.text())
+        elEnergy = np.float32(self.currentROIPanel.elineEdit.text())
+        self.onROIselect(ymin, ymax)
+        self.plot_lines(elEnergy, 1)
+
     def updateEnergyAxis(self, state):
         sender = self.sender()
         if str(sender.text()).startswith("eV"):
@@ -1391,7 +1410,7 @@ class Ge32Explorer(QtGui.QMainWindow):
         if self.exAllCB.checkState():
             for pixel in self.pixList:
                 if pixel.checkState():
-                    pixStr = DETECTOR_PIX_STR.format(pixel.text())
+                    pixStr = self.DETECTOR_PIX_STR.format(pixel.text())
                     header += pixStr + " "
                     outData.append(np.sum(np.array(
                             self.scanGroup[pixStr])[:, int(self.roi[0]*0.1):int(self.roi[-1]*0.1)], axis=1))
@@ -1402,14 +1421,13 @@ class Ge32Explorer(QtGui.QMainWindow):
         print("Exported to", "{}".format(exportName))        
 
     def onROIselect(self, ymin, ymax):
-
-        sender = self.sender()
-        if sender not in self.roiEdits:
-            self.roiEdits[0].setText("{:.2f}".format(ymin))
-            self.roiEdits[1].setText("{:.2f}".format(ymax))
+        print(ymin, ymax)
+        if ymin is not None:
+            self.currentROIPanel.roiminEdit.setText("{:.2f}".format(ymin))
+            self.currentROIPanel.roimaxEdit.setText("{:.2f}".format(ymax))
         else:
-            ymin = float(self.roiEdits[0].text())
-            ymax = float(self.roiEdits[1].text())
+            ymin = float(self.currentROIPanel.roiminEdit.text())
+            ymax = float(self.currentROIPanel.roimaxEdit.text())
 
         try:
             self.roispan.remove()
@@ -1425,7 +1443,7 @@ class Ge32Explorer(QtGui.QMainWindow):
         pixNum = int(sender.text())
         modifier = 1. if state else -1.
         self.totalSum += modifier *\
-            np.array(self.scanGroup[DETECTOR_PIX_STR.format(
+            np.array(self.scanGroup[self.DETECTOR_PIX_STR.format(
                     pixNum)])
         self.send_to_monitor()
         self.sumChannel = self.totalSum / self.ch1arr
@@ -1439,6 +1457,7 @@ class Ge32Explorer(QtGui.QMainWindow):
         self.pixDataReady.emit(outMsg)
 
     def load_data(self, index):
+        self.beamline = None
         if index is None:
             self.eaxis = np.linspace(0, 100, 101)
             self.dwellTime = np.zeros_like(self.eaxis)
@@ -1466,20 +1485,76 @@ class Ge32Explorer(QtGui.QMainWindow):
             try:
                 self.f = h5py.File(fileName, 'r')
                 self.scanGroup = self.f['scan']  # BioXAS scan group name
-                self.eaxis = np.array(self.scanGroup['AxisValues::BioXASEnergyControl'])
-                #  It's a workaround for acquaman bug/feature, 
-                #  when the next region starts at the same energy
-                #  where the previous region ends
-                diffTest = np.diff(self.eaxis) <= 0
-                if any(diffTest):
-                    self.eaxis[np.where(diffTest)] -= 1e-3
-                #  End fix
-                self.dwellTime = np.array(self.scanGroup['ScalerDwellTimeFeedback'])
-                self.ch1 = np.array(self.scanGroup['I0Detector_darkCorrected'])
-                self.ch2 = np.array(self.scanGroup['I1Detector_darkCorrected'])
-                self.ch3 = np.array(self.scanGroup['I2Detector_darkCorrected'])
-                ch4 = np.array(self.scanGroup[DETECTOR_SUM_STR])
+
+                
+                if 'BioXASMainInboardDetector' in self.scanGroup.keys() or\
+                        'BioXASMainOutboardDetector' in self.scanGroup.keys():
+                    self.beamline = 'BioXAS-Main'
+                elif 'Ge32Element' in self.scanGroup.keys():
+                    self.beamline = 'BioXAS-Side'
+                elif 'KETEK' in self.scanGroup.keys():
+                    self.beamline = 'IDEAS'
+                elif 'Ge13El' in self.scanGroup.keys():
+                    self.beamline = 'VESPERS'
+                else:
+                    print("Could not identify the beamline based on mca detector name")
+                
+                if self.beamline is None:
+                    if 'beamline_configuration' in self.f.keys():
+                        beamCfg = self.f['beamline_configuration']
+                        if 'BioXASMainInboardGeDetectorStage' in beamCfg.keys():
+                            self.beamline = 'BioXAS-Main'
+                        elif 'BioXASSideGeDetectorStage' in beamCfg.keys():
+                            self.beamline = 'BioXAS-Side'
+                        else:
+                            print("Could not identify the beamline based on beamline_configuration")                         
+                            
+                if self.beamline is None:
+                    if 'I0Detector' in self.scanGroup.keys():
+                        self.beamline = 'BioXAS-Main'  #  It can be Side as well, but the dataset names would be the same
+                    elif 'I_0' in self.scanGroup.keys() or\
+                            'Reference' in self.scanGroup.keys():
+                        self.beamline = 'IDEAS'
+                    elif 'MiniIonChamber' in self.scanGroup.keys() or\
+                            'PostIonChamber' in self.scanGroup.keys() or\
+                            'SplitIonChamber' in self.scanGroup.keys():
+                        self.beamline = 'VESPERS'
+                    else:
+                        print("CAN'T IDENTIFY THE FILE STRUCTURE")  # TODO: data selection dialog
+                    
+                if self.beamline is None:
+                    self.load_data(None)
+                    return
+
+                axisnames = re.findall(r'AxisValues.*?\'', (str(self.scanGroup.keys())))
+                if len(axisnames) == 1:
+                    axisname = axisnames[0].strip(('\' ,'))
+                    self.eaxis = np.array(self.scanGroup[axisname])
+                elif len(axisnames) == 2:
+                    print("Two-dimensional scans not supported")
+                else:
+                    print("CAN'T IDENTIFY THE FILE STRUCTURE")  # TODO: data selection dialog
+
+                self.dwellTime = np.array(self.scanGroup[dataFormats[self.beamline]['dwellTime']])
+                self.ch1 = np.array(self.scanGroup[dataFormats[self.beamline]['I0']])
+                self.ch2 = np.array(self.scanGroup[dataFormats[self.beamline]['I1']])
+                self.ch3 = np.array(self.scanGroup[dataFormats[self.beamline]['I2']])
+
+                if isinstance(dataFormats[self.beamline]['mcaTotal'], tuple):
+                    self.DETECTOR_SUM_STR = dataFormats[self.beamline]['mcaTotal'][0]
+                    self.DETECTOR_PIX_STR = dataFormats[self.beamline]['mcaSingle'][0]
+                else:
+                    self.DETECTOR_SUM_STR = dataFormats[self.beamline]['mcaTotal']
+                    self.DETECTOR_PIX_STR = dataFormats[self.beamline]['mcaSingle'] if\
+                        'mcaSingle' in dataFormats[self.beamline].keys() else self.DETECTOR_SUM_STR
+
+                ch4 = np.array(self.scanGroup[self.DETECTOR_SUM_STR])
+                fluolen = ch4.shape[1]
+                extents = (self.eaxis[0], self.eaxis[-1], 0, (fluolen-1)*10)
+#                print(extents)
+                self.im.set_extent(extents)
             except:
+                raise
                 self.load_data(None)
                 return
                 
@@ -1487,17 +1562,18 @@ class Ge32Explorer(QtGui.QMainWindow):
         self.totalSum = np.zeros_like(ch4)
 
         if index is not None:
-            for i in reversed(range(self.pixLayout.count())): 
-                widgetToRemove = self.pixLayout.itemAt(i).widget()
-                self.pixLayout.removeWidget(widgetToRemove)
-                widgetToRemove.setParent(None)
+            for ichan in range(32):
+                self.pixList[ichan].setVisible(False)
 
-            self.pixList = []
-            for ichan in range(200):
-                pixStr = DETECTOR_PIX_STR.format(ichan+1)
-                if pixStr in self.scanGroup:
-                    self.totalSum += np.array(self.scanGroup[pixStr])
-                    self.add_pix_cb(ichan)
+            for ichan in range(32):
+                pixStr = self.DETECTOR_PIX_STR.format(ichan+1)
+                if pixStr in self.scanGroup.keys():
+                    if self.pixList[ichan].checkState():
+                        self.totalSum += np.array(self.scanGroup[pixStr])
+#                    self.add_pix_cb(ichan)
+                    self.pixList[ichan].setVisible(True)
+                    if self.DETECTOR_PIX_STR == self.DETECTOR_SUM_STR:
+                        break
                 else:
                     break
 
@@ -1510,19 +1586,28 @@ class Ge32Explorer(QtGui.QMainWindow):
             self.show_frame(currentPix)
 
             try:
-                if 'ROIs' in self.f.keys():
-                    if len(self.f['ROIs']) > 0:
-                        for roivalue in self.f['ROIs'].values():
-                            if len(roivalue) > 1:
-                                self.onROIselect(roivalue[0], roivalue[1])
-                                if len(roivalue) > 2:
-                                    emline = roivalue[2]
-                                else:
-                                    emline = 0.5*(roivalue[0] + roivalue[1])
-                                self.elineEdit.setText("{:.2f}".format(emline))
-                                self.plot_lines(roivalue[2], 1)                                
-                            break
+                if 'emission_lines' in self.f.keys():
+                    lastroi = 0
+                    for iroi, (roiname, roivalue) in enumerate(self.f['emission_lines'].items()):
+                        roimin, roimax, roienergy =\
+                            np.float32(roivalue['lowerBound']),\
+                            np.float32(roivalue['upperBound']),\
+                            np.float32(roivalue['energy'])
+                        self.roiPanels[iroi].update_rois(roimin, roimax)
+                        self.roiPanels[iroi].update_energy(roienergy)
+                        self.roiPanels[iroi].roiRButton.setText(str(roiname))
+                        self.roiPanels[iroi].setVisible(True)
+                        lastroi = int(iroi)+1
+                    for ichan in range(32-lastroi):
+                        self.roiPanels[ichan+lastroi].setVisible(False)                        
+
+                    self.currentROIPanel = self.roiPanels[0]
+                    self.currentROIPanel.roiRButton.setChecked(True)
+
+                    if lastroi > 0:
+                        self.updateROIs(0)
             except:
+                raise
                 print("Can't load ROIs")
 
             edgePos = min(self.eaxis[-1], self.eaxis[0]+200)
@@ -1555,51 +1640,54 @@ class Ge32Explorer(QtGui.QMainWindow):
                 self.emissionLinePlot.remove()
             except:
                 pass
-            self.emissionLinePlot = self.mplAx.axhline(energy, color='red', linewidth=1)
+            self.emissionLinePlot = self.mplAx.axhline(
+                    energy, color='red', linewidth=1)
         else:
             try:
                 self.absorptionLinePlot.remove()
             except:
                 pass
             self.absorptionLine = energy
-            self.absorptionLinePlot = self.mplAx.axvline(energy, color='yellow', linewidth=1)
+            self.absorptionLinePlot = self.mplAx.axvline(
+                    energy, color='yellow', linewidth=1)
         self.send_to_monitor()
         self.mplFig.canvas.draw()
         self.mplFig.canvas.blit()
 
     def show_frame(self, ichan):
         self.pixEdit.setText(str(ichan))
-        pixStr = DETECTOR_PIX_STR.format(ichan) if ichan > 0 else\
-            DETECTOR_SUM_STR
+        pixStr = self.DETECTOR_PIX_STR.format(ichan) if ichan > 0 else\
+            self.DETECTOR_SUM_STR
         if not pixStr in self.scanGroup:
             return
         fluolen = self.totalSum.shape[1]
         fluoax = np.linspace(0, (fluolen-1)*FLUOBIN, fluolen)
-        eax = np.linspace(self.eaxis[0], self.eaxis[-1], int(self.eaxis[-1] - self.eaxis[0]))
+        eax = np.linspace(self.eaxis[0], self.eaxis[-1],
+                          int(self.eaxis[-1] - self.eaxis[0]))
         data = np.array(self.scanGroup[pixStr])/self.ch1arr if ichan > 0 else\
             self.sumChannel
 #        data = self.ch4
         plotArray = data.T / np.max(data)
+
+        #  It's a workaround for acquaman bug/feature, 
+        #  when the next region starts at the same energy
+        #  where the previous region ends
         xax = np.copy(self.eaxis)
+        diffTest = np.diff(xax) <= 0
+        if any(diffTest):
+            xax[np.where(diffTest)] -= 1e-3
+        #  End fix
+
         if self.mapEax == 0:
-            f = interp2d(self.eaxis, fluoax, plotArray)
+            f = interp2d(xax, fluoax, plotArray)
             interpData = f(eax, fluoax)
         else:
             interpData = plotArray
-#            xax = [1, len(self.eaxis)]
-#        self.im.set_data(plotArray)
+
         self.im.set_data(interpData)
-#        self.im.set_array(plotArray)
-        self.im.set_extent((xax[0], xax[-1], 0, (fluolen-1)*10))
-#        yax, xax = np.meshgrid(fluoax, self.eaxis)        
-#        try:
-#            self.im.remove()
-#        except:
-#            pass
-#        self.im = self.mplAx.pcolormesh(xax, yax,self.sumChannel, 
-#                                        cmap='jet',  shading='gouraud')
-#        self.im.
-#        self.im.set_array(plotArray)
+        self.im.set_cmap('jet')
+
+        print(pixStr)
         self.mplAx.set_title(pixStr)
         self.mplFig.canvas.draw()
         self.mplFig.canvas.blit()
@@ -1609,6 +1697,61 @@ class Ge32Explorer(QtGui.QMainWindow):
 
     def closeEvent(self, ce):
         self.fileQuit() 
+
+
+class ROIPanel(QtGui.QGroupBox):
+    lineEditUpdated = QtCore.pyqtSignal(int, int)
+    
+    def __init__(self, bGr, chan, e0, emin, emax):
+        QtGui.QGroupBox.__init__(self)
+#        roiWidget = QtGui.QGroupBox()
+        hlayout = QtGui.QGridLayout()
+       
+        roiRButton = QtGui.QRadioButton(str(chan+1))
+#        roiRButton.clicked.connect(self.updateROIs)
+        bGr.addButton(roiRButton, chan)
+        self.roiRButton = roiRButton
+        
+        hlayout.addWidget(roiRButton, 0, 0, 2, 1)
+
+        scaleValidator = QtGui.QDoubleValidator()
+        scaleValidator.setRange(0, 4095*FLUOBIN, 3)
+        
+        roiminEdit = QtGui.QLineEdit(str(emin))
+        roiminEdit.setValidator(scaleValidator)
+        roiminEdit.setMaximumWidth(75)
+        roimaxEdit = QtGui.QLineEdit(str(emax))
+        roimaxEdit.setValidator(scaleValidator)
+        roimaxEdit.setMaximumWidth(75)
+        
+       
+        label = QtGui.QLabel('Energy')
+        elineEdit = QtGui.QLineEdit(str(e0))
+        elineEdit.setValidator(scaleValidator)
+#        elineEdit.setMaximumWidth(75)
+        hlayout.addWidget(label, 0, 1)
+        hlayout.addWidget(elineEdit, 0, 2, 1, 3)
+        label = QtGui.QLabel('Min')
+        hlayout.addWidget(label, 1, 1)
+        hlayout.addWidget(roiminEdit, 1, 2)
+#        hlayout.addStretch(1)
+        label = QtGui.QLabel('Max')
+        hlayout.addWidget(label, 1, 3)
+        hlayout.addWidget(roimaxEdit, 1, 4)
+
+        self.roiminEdit = roiminEdit
+        self.roimaxEdit = roimaxEdit
+        self.elineEdit = elineEdit
+
+        self.setLayout(hlayout)        
+
+    def update_rois(self, roimin, roimax):
+        self.roiminEdit.setText("{:.2f}".format(roimin))
+        self.roimaxEdit.setText("{:.2f}".format(roimax))        
+
+    def update_energy(self, energy):
+        self.elineEdit.setText("{:.2f}".format(energy))             
+
 
 if __name__ == '__main__':
     import sys
