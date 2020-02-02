@@ -26,6 +26,8 @@ from matplotlib.backends.backend_qt5agg import (
 from matplotlib.widgets import SpanSelector
 pg.setConfigOptions(antialias=False)
 from acquamanDataFormats import dataFormats
+from lmfit import Model, models
+from matplotlib import pyplot as plt
 
 isTest = True
 needFY = True
@@ -1281,7 +1283,10 @@ class Ge32Explorer(QtGui.QMainWindow):
         infoWidget = QtGui.QGroupBox()
         vlayout = QtGui.QVBoxLayout()
 
-        roiPanel = QtGui.QGroupBox('ROI')
+        
+        roiTabs = QtGui.QTabWidget()
+        roiPanel = QtGui.QWidget()
+#        roiPanel = QtGui.QGroupBox('ROI')
         panelLayout = QtGui.QVBoxLayout()
         roiScroll = QtGui.QScrollArea()
         roiWidget = QtGui.QWidget()
@@ -1308,7 +1313,28 @@ class Ge32Explorer(QtGui.QMainWindow):
         roiScroll.setWidgetResizable(True)
         panelLayout.addWidget(roiScroll)
         roiPanel.setLayout(panelLayout)
-        vlayout.addWidget(roiPanel)
+        roiTabs.addTab(roiPanel, 'ROI')
+
+        pfPanel = QtGui.QWidget()
+        pfLayout = QtGui.QVBoxLayout()
+        pfCB = QtGui.QCheckBox('Enabled (really slow)')
+        pfCB.setCheckState(0)
+        self.PFStatus = False
+        pfCB.stateChanged.connect(self.switchPF_ROI)
+        pfLayout.addWidget(pfCB)
+        self.PFModel = 'Gaussian'
+        pfButtonGroup = QtGui.QButtonGroup()
+        for iFS, funcStr in enumerate(['Gaussian', 'Lorentzian', 'Voigt']):
+            funcRB = QtGui.QRadioButton(funcStr)
+            pfButtonGroup.addButton(funcRB, iFS)
+            if iFS == 0:
+                funcRB.setChecked(True)
+            pfLayout.addWidget(funcRB)
+
+        pfButtonGroup.buttonClicked.connect(self.updatePFs)            
+        pfPanel.setLayout(pfLayout)
+        roiTabs.addTab(pfPanel,'Peak fitting')
+        vlayout.addWidget(roiTabs)
 
         linesWidget = QtGui.QGroupBox("Lines")
         hlayout = QtGui.QVBoxLayout()
@@ -1376,6 +1402,15 @@ class Ge32Explorer(QtGui.QMainWindow):
         self.main_widget.setFocus()
         self.setCentralWidget(self.main_widget)
 
+    def updatePFs(self, buttonID):
+        self.PFModel = buttonID
+        if self.PFStatus:
+            self.send_to_monitor()
+
+    def switchPF_ROI(self, state):
+        self.PFStatus = True if state else False
+        self.send_to_monitor()
+
     def updateROIs(self, buttonId):
         try:
             sender = self.sender()
@@ -1421,7 +1456,7 @@ class Ge32Explorer(QtGui.QMainWindow):
         print("Exported to", "{}".format(exportName))        
 
     def onROIselect(self, ymin, ymax):
-        print(ymin, ymax)
+
         if ymin is not None:
             self.currentROIPanel.roiminEdit.setText("{:.2f}".format(ymin))
             self.currentROIPanel.roimaxEdit.setText("{:.2f}".format(ymax))
@@ -1452,9 +1487,53 @@ class Ge32Explorer(QtGui.QMainWindow):
             self.show_frame(0)
 
     def send_to_monitor(self):
+        outF = self.fit_peaks() if self.PFStatus else np.sum(
+                self.totalSum[:, int(self.roi[0]*0.1):int(self.roi[-1]*0.1)],
+                axis=1)
+
         outMsg = [self.sourceName, float(self.edgeEdit.text()), self.eaxis, self.ch1, self.ch2, self.ch3,
-                  [np.sum(self.totalSum[:, int(self.roi[0]*0.1):int(self.roi[-1]*0.1)], axis=1)]]
+                  [outF]]
         self.pixDataReady.emit(outMsg)
+
+    
+    def fit_peaks(self):
+#        plt.figure()
+        if self.PFModel == 0:
+            peak1 = models.GaussianModel(prefix='p1_')
+        elif self.PFModel == 1:
+            peak1 = models.LorentzianModel(prefix='p1_')
+        else:
+            peak1 = models.VoigtModel(prefix='p1_')
+
+        params1 = peak1.make_params()
+        totalFit = np.zeros(self.totalSum.shape[0])
+#        lastfit = None
+#        initfit = None
+        print("Started peak fitting for", len(totalFit), "points")
+        for ie in range(len(totalFit)):
+            xrf = self.totalSum[ie, int(self.roi[0]*0.1):int(self.roi[-1]*0.1)]
+            datax = np.linspace(0, len(xrf)-1, len(xrf))
+            center = (self.roi[-1]*0.1 - self.roi[0]*0.1) * 0.5
+            params1['p1_center'].set(value=center, min=center-30, max=center+30)
+            params1['p1_sigma'].set(value=8, min=0.1, max=100)
+            xrfmax = np.max(xrf)
+            params1['p1_amplitude'].set(value=xrfmax, min=xrfmax*0.01, max=xrfmax*100)
+            output = peak1.fit(xrf, params1, x=datax)
+            peak_integral = output.best_values['p1_amplitude']
+#            lastparams = params1
+#            lastbest = output.best_values
+#            print(self.eaxis[ie], peak_integral)
+            totalFit[ie] = peak_integral
+#            lastfit = output.best_fit
+#            initfit = output.init_fit
+#        print(lastparams)
+#        print(lastbest)
+#        plt.plot(datax, xrf, 'b+')
+#        plt.plot(datax, lastfit, 'r-')
+#        plt.plot(datax, initfit, 'g-')
+#        plt.show()
+        print("Done")
+        return totalFit
 
     def load_data(self, index):
         self.beamline = None
@@ -1472,8 +1551,6 @@ class Ge32Explorer(QtGui.QMainWindow):
             self.sourceName = "No Data"
             self.f = None
             self.scanGroup = []
-#            fileName = r"D:\BioXAS\George\OP_Arsenate_1mM_Ask_aq_4.hdf5"
-    #        fileName = r"G:\hdf5\JG_slac_Ask_exafs_13k_3_1.hdf5"
 
         else:
             if not index.model().isDir(index):
@@ -1568,7 +1645,7 @@ class Ge32Explorer(QtGui.QMainWindow):
             for ichan in range(32):
                 pixStr = self.DETECTOR_PIX_STR.format(ichan+1)
                 if pixStr in self.scanGroup.keys():
-                    if self.pixList[ichan].checkState():
+                    if self.pixList[ichan].checkState() and ichan not in [4,5,6,7,15]:
                         self.totalSum += np.array(self.scanGroup[pixStr])
 #                    self.add_pix_cb(ichan)
                     self.pixList[ichan].setVisible(True)
