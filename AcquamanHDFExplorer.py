@@ -1645,7 +1645,7 @@ class Ge32Explorer(QtGui.QMainWindow):
             for ichan in range(32):
                 pixStr = self.DETECTOR_PIX_STR.format(ichan+1)
                 if pixStr in self.scanGroup.keys():
-                    if self.pixList[ichan].checkState() and ichan not in [4,5,6,7,15]:
+                    if self.pixList[ichan].checkState():  # and ichan not in [4,5,6,7,15]:
                         self.totalSum += np.array(self.scanGroup[pixStr])
 #                    self.add_pix_cb(ichan)
                     self.pixList[ichan].setVisible(True)
