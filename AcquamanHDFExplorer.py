@@ -1299,7 +1299,7 @@ class Ge32Explorer(QtGui.QMainWindow):
             roiChan.roimaxEdit.editingFinished.connect(lambda: self.onROIselect(None, None))
             roiChan.roiminEdit.editingFinished.connect(lambda: self.onROIselect(None, None))
             roiChan.elineEdit.editingFinished.connect(
-                    lambda: self.plot_lines(float(roiChan.elineEdit.text()), 1))
+                    lambda: self.plot_lines(None, 1))
             roiLayout.addWidget(roiChan)
             if chan > 0:
                 roiChan.setVisible(False)
@@ -1717,6 +1717,8 @@ class Ge32Explorer(QtGui.QMainWindow):
                 self.emissionLinePlot.remove()
             except:
                 pass
+            if energy is None:
+                energy = np.float32(self.currentROIPanel.elineEdit.text())
             self.emissionLinePlot = self.mplAx.axhline(
                     energy, color='red', linewidth=1)
         else:
