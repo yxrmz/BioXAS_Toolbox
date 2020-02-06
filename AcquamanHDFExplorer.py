@@ -1284,9 +1284,9 @@ class Ge32Explorer(QtGui.QMainWindow):
         vlayout = QtGui.QVBoxLayout()
 
         
-        roiTabs = QtGui.QTabWidget()
-        roiPanel = QtGui.QWidget()
-#        roiPanel = QtGui.QGroupBox('ROI')
+#        roiTabs = QtGui.QTabWidget()
+#        roiPanel = QtGui.QWidget()
+        roiPanel = QtGui.QGroupBox('ROI')
         panelLayout = QtGui.QVBoxLayout()
         roiScroll = QtGui.QScrollArea()
         roiWidget = QtGui.QWidget()
@@ -1313,9 +1313,11 @@ class Ge32Explorer(QtGui.QMainWindow):
         roiScroll.setWidgetResizable(True)
         panelLayout.addWidget(roiScroll)
         roiPanel.setLayout(panelLayout)
-        roiTabs.addTab(roiPanel, 'ROI')
+        vlayout.addWidget(roiPanel)
+#        roiTabs.addTab(roiPanel, 'ROI')
 
-        pfPanel = QtGui.QWidget()
+#        pfPanel = QtGui.QWidget()
+        pfPanel = QtGui.QGroupBox('Peak fitting')
         pfLayout = QtGui.QVBoxLayout()
         pfCB = QtGui.QCheckBox('Enabled (really slow)')
         pfCB.setCheckState(0)
@@ -1323,18 +1325,19 @@ class Ge32Explorer(QtGui.QMainWindow):
         pfCB.stateChanged.connect(self.switchPF_ROI)
         pfLayout.addWidget(pfCB)
         self.PFModel = 'Gaussian'
-        pfButtonGroup = QtGui.QButtonGroup()
+        self.pfButtonGroup = QtGui.QButtonGroup()
         for iFS, funcStr in enumerate(['Gaussian', 'Lorentzian', 'Voigt']):
             funcRB = QtGui.QRadioButton(funcStr)
-            pfButtonGroup.addButton(funcRB, iFS)
+            self.pfButtonGroup.addButton(funcRB, iFS)
             if iFS == 0:
                 funcRB.setChecked(True)
             pfLayout.addWidget(funcRB)
 
-        pfButtonGroup.buttonClicked.connect(self.updatePFs)            
+        self.pfButtonGroup.buttonClicked['int'].connect(self.updatePFs)            
         pfPanel.setLayout(pfLayout)
-        roiTabs.addTab(pfPanel,'Peak fitting')
-        vlayout.addWidget(roiTabs)
+#        roiTabs.addTab(pfPanel,'Peak fitting')
+#        vlayout.addWidget(roiTabs)
+        vlayout.addWidget(pfPanel)
 
         linesWidget = QtGui.QGroupBox("Lines")
         hlayout = QtGui.QVBoxLayout()
