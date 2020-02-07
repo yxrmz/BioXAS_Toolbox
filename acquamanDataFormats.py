@@ -22,15 +22,15 @@ format_BioXASSide = {'xaxis': 'AxisValues::',
                      'I2': 'I2Detector_darkCorrected',
                      'I3': 'PIPSDetector_darkCorrected',
                      'dwellTime': 'ScalerDwellTimeFeedback',
-                     'mcaTotal': 'Ge32Element',
-                     'mcaSingle': 'Ge32ElementRawSpectrum{}'}
+                     'mcaTotal': ('Ge32Element',),
+                     'mcaSingle': ('Ge32ElementRawSpectrum{}',)}
 
 format_IDEAS = {'xaxis': 'AxisValues::',
                 'I0': 'I_0',
                 'I1': 'Sample',
                 'I2': 'Reference',
                 'dwellTime': 'dwellTime',
-                'mcaTotal': 'KETEK'}
+                'mcaTotal': ('KETEK',)}
 
 format_VESPERS = {'xaxis': 'AxisValues::',
                   'I0': 'SplitIonChamber',
@@ -38,8 +38,8 @@ format_VESPERS = {'xaxis': 'AxisValues::',
                   'I2': 'PostIonChamber',
                   'I3': 'PreKBIonChamber',
                   'dwellTime': 'MasterDwellTime',
-                  'mcaTotal': 'FourElementXMapVortex',
-                  'mcaSingle': 'FourElementVotexRawSpectrum{}'}
+                  'mcaTotal': ('FourElementXMapVortex',),
+                  'mcaSingle': ('FourElementVotexRawSpectrum{}',)}
 
 
 dataFormats = {'BioXAS-Main': format_BioXASMain,

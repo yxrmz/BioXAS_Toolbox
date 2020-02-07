@@ -44,7 +44,7 @@ DETECTOR_NCHANNELS = 1
 ROOTPATH = ""
 
 FLUOBIN = 10
-
+MAX_DETECTORS = 2
 
 
 
@@ -368,7 +368,7 @@ class DataReceiver(QtCore.QObject):
             print("finished in {0} s".format(time.time()-t0))
 
     def hdf_data_listener(self, inplist):
-        fileName, edge, e, ch1, ch2, ch3, ch4list = inplist
+        fileNames, edge, e, ch1, ch2, ch3, ch4list = inplist
         self.msgClear.emit()
         moveable = 'energy'
         movMin = e.min()
@@ -379,7 +379,7 @@ class DataReceiver(QtCore.QObject):
         units = [u'counts', u'counts', u'counts', u'counts']
         colors = colorCycleT[0:3] + colorCycleF[0:1]
         self.msgCounters.emit([counters, units, locations, colors])
-        self.msgRepeats.emit([None, 1, len(fileName)])
+        self.msgRepeats.emit([fileNames[0], 1, len(fileNames)])
 #            self.msgHintE0.emit([7112-50, 7112+50])
         self.msgHintE0.emit([edge-50, edge+50])        
 
@@ -636,7 +636,7 @@ class MonitorWidget(QtGui.QWidget):
         self.threadEXAFS.started.connect(self.exafs_extractor.calculate)
         self.setClear()
 
-        labelScanNo = QtGui.QLabel('Scan #')
+        labelScanNo = QtGui.QLabel('Scan name')
         self.scanNo = QtGui.QLabel('not set')
         self.pointsReceived = QtGui.QLabel(': none points received')
         self.coordinates = QtGui.QLabel()
@@ -660,7 +660,7 @@ class MonitorWidget(QtGui.QWidget):
         headerLayout.setContentsMargins(0, 0, 0, 0)
         headerLayout.addWidget(labelScanNo)
         headerLayout.addWidget(self.scanNo)
-        headerLayout.addWidget(self.pointsReceived)
+#        headerLayout.addWidget(self.pointsReceived)
         headerLayout.addStretch()
         headerLayout.addWidget(self.coordinates)
         headerLayout.addStretch()
@@ -1202,8 +1202,8 @@ class Ge32Explorer(QtGui.QMainWindow):
 #        self.help_menu.addAction('&About', self.about)
 
         self.main_widget = QtGui.QWidget(self)
-        self.DETECTOR_PIX_STR = ""
-        self.DETECTOR_SUM_STR = ""
+        self.DETECTOR_PIX_TUPLE = ""
+        self.DETECTOR_SUM_TUPLE = ""
 
         hl = QtGui.QHBoxLayout(self.main_widget)
 
@@ -1238,16 +1238,25 @@ class Ge32Explorer(QtGui.QMainWindow):
         except:
             print("slider: unknown settings")
         
-        pixPanel = QtGui.QGroupBox(self.main_widget)
-        pixPanel.setTitle('MCA Detector channels')
-        self.pixLayout = QtGui.QGridLayout(self.main_widget)
-        self.pixList = []
-        for ipix in range(32):
-            self.add_pix_cb(ipix)
-        for ipix in range(31):
-            self.pixList[ipix+1].setVisible(False)
-        pixPanel.setLayout(self.pixLayout)
-        pixPanel.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Fixed)
+        pixTab = QtGui.QTabWidget()
+#        pixPanel = QtGui.QGroupBox()
+#        pixPanel.setTitle('MCA Detector channels')
+        self.pixLayout = [0]*MAX_DETECTORS
+        self.pixList = [[]]
+        for idet in range(MAX_DETECTORS):
+            pixPanel = QtGui.QWidget()
+            self.pixLayout[idet] = QtGui.QGridLayout()
+            for ipix in range(32):
+                self.add_pix_cb(idet, ipix)
+            for ipix in range(31):
+                self.pixList[idet][ipix+1].setVisible(False)
+            self.pixList.append([])
+            pixPanel.setLayout(self.pixLayout[idet])
+            pixPanel.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Fixed)
+            pixTab.addTab(pixPanel, "")
+            if idet > 0:
+                pixTab.setTabEnabled(idet, False)
+        self.pixTab = pixTab            
 
         self.mplFig = Figure()
         self.mplAx = self.mplFig.add_subplot(111)
@@ -1294,7 +1303,7 @@ class Ge32Explorer(QtGui.QMainWindow):
         self.roiButtonGroup.buttonClicked.connect(self.updateROIs)
         roiLayout = QtGui.QVBoxLayout()        
         self.roiPanels = []
-        for chan in range(32):
+        for chan in range(16):
             roiChan = ROIPanel(self.roiButtonGroup, chan, 0, 0, 0)
             roiChan.roimaxEdit.editingFinished.connect(lambda: self.onROIselect(None, None))
             roiChan.roiminEdit.editingFinished.connect(lambda: self.onROIselect(None, None))
@@ -1396,7 +1405,8 @@ class Ge32Explorer(QtGui.QMainWindow):
         hsplit.setLayout(hlayout)
         hlayout.addWidget(paletteWidget)
         hlayout.addWidget(infoWidget)
-        l.addWidget(pixPanel)
+#        l.addWidget(pixPanel)
+        l.addWidget(pixTab)
         l.addWidget(hsplit)
 #        l.addStretch()
 #        l.addWidget(dc)
@@ -1446,12 +1456,13 @@ class Ge32Explorer(QtGui.QMainWindow):
             outData.append(np.sum(getattr(self, dsName)[:, int(self.roi[0]*0.1):int(self.roi[-1]*0.1)], axis=1) if dsName == 'totalSum' else getattr(self, dsName))
 
         if self.exAllCB.checkState():
-            for pixel in self.pixList:
-                if pixel.checkState():
-                    pixStr = self.DETECTOR_PIX_STR.format(pixel.text())
-                    header += pixStr + " "
-                    outData.append(np.sum(np.array(
-                            self.scanGroup[pixStr])[:, int(self.roi[0]*0.1):int(self.roi[-1]*0.1)], axis=1))
+            for DETECTOR_PIX_STR in self.DETECTOR_PIX_TUPLE:
+                for pixel in self.pixList:
+                    if pixel.checkState():
+                        pixStr = DETECTOR_PIX_STR.format(pixel.text())
+                        header += pixStr + " "
+                        outData.append(np.sum(np.array(
+                                self.scanGroup[pixStr])[:, int(self.roi[0]*0.1):int(self.roi[-1]*0.1)], axis=1))
         np.savetxt(exportName,
                    np.array(outData).T,
                    fmt='%.10e',
@@ -1479,10 +1490,15 @@ class Ge32Explorer(QtGui.QMainWindow):
     def recalculate_sum(self, state):
         sender = self.sender()
         pixNum = int(sender.text())
+        currentDet = self.pixTab.currentIndex()
+        pixStr = self.DETECTOR_PIX_TUPLE[currentDet].format(pixNum)
         modifier = 1. if state else -1.
-        self.totalSum += modifier *\
-            np.array(self.scanGroup[self.DETECTOR_PIX_STR.format(
-                    pixNum)])
+
+        okstate = False if np.isnan(np.sum(np.array(
+            self.scanGroup[pixStr]))) else True
+        if okstate:
+            self.totalSum += modifier *\
+                np.array(self.scanGroup[pixStr])
         self.send_to_monitor()
         self.sumChannel = self.totalSum / self.ch1arr
 #        self.sumChannel /= np.max(self.sumChannel)
@@ -1494,7 +1510,7 @@ class Ge32Explorer(QtGui.QMainWindow):
                 self.totalSum[:, int(self.roi[0]*0.1):int(self.roi[-1]*0.1)],
                 axis=1)
 
-        outMsg = [self.sourceName, float(self.edgeEdit.text()), self.eaxis, self.ch1, self.ch2, self.ch3,
+        outMsg = [[os.path.basename(self.fileNameStr)], float(self.edgeEdit.text()), self.eaxis, self.ch1, self.ch2, self.ch3,
                   [outF]]
         self.pixDataReady.emit(outMsg)
 
@@ -1620,18 +1636,17 @@ class Ge32Explorer(QtGui.QMainWindow):
                 self.ch2 = np.array(self.scanGroup[dataFormats[self.beamline]['I1']])
                 self.ch3 = np.array(self.scanGroup[dataFormats[self.beamline]['I2']])
 
-                if isinstance(dataFormats[self.beamline]['mcaTotal'], tuple):
-                    self.DETECTOR_SUM_STR = dataFormats[self.beamline]['mcaTotal'][0]
-                    self.DETECTOR_PIX_STR = dataFormats[self.beamline]['mcaSingle'][0]
-                else:
-                    self.DETECTOR_SUM_STR = dataFormats[self.beamline]['mcaTotal']
-                    self.DETECTOR_PIX_STR = dataFormats[self.beamline]['mcaSingle'] if\
-                        'mcaSingle' in dataFormats[self.beamline].keys() else self.DETECTOR_SUM_STR
+#                if isinstance(dataFormats[self.beamline]['mcaTotal'], tuple):
+                self.DETECTOR_SUM_TUPLE = dataFormats[self.beamline]['mcaTotal']
+#                    self.DETECTOR_PIX_STR = dataFormats[self.beamline]['mcaSingle'][0]
+#                else:
+#                    self.DETECTOR_SUM_STR = dataFormats[self.beamline]['mcaTotal']
+                self.DETECTOR_PIX_TUPLE = dataFormats[self.beamline]['mcaSingle'] if\
+                    'mcaSingle' in dataFormats[self.beamline].keys() else self.DETECTOR_SUM_TUPLE
 
-                ch4 = np.array(self.scanGroup[self.DETECTOR_SUM_STR])
+                ch4 = np.array(self.scanGroup[self.DETECTOR_SUM_TUPLE[0]])
                 fluolen = ch4.shape[1]
                 extents = (self.eaxis[0], self.eaxis[-1], 0, (fluolen-1)*10)
-#                print(extents)
                 self.im.set_extent(extents)
             except:
                 raise
@@ -1642,23 +1657,32 @@ class Ge32Explorer(QtGui.QMainWindow):
         self.totalSum = np.zeros_like(ch4)
 
         if index is not None:
-            for ichan in range(32):
-                self.pixList[ichan].setVisible(False)
+            for idet in range(MAX_DETECTORS):
+                self.pixTab.setTabText(idet, "")
+                if idet > 0:
+                    self.pixTab.setTabEnabled(idet, False)
 
-            for ichan in range(32):
-                pixStr = self.DETECTOR_PIX_STR.format(ichan+1)
-                if pixStr in self.scanGroup.keys():
-                    if self.pixList[ichan].checkState():  # and ichan not in [4,5,6,7,15]:
-                        self.totalSum += np.array(self.scanGroup[pixStr])
-#                    self.add_pix_cb(ichan)
-                    self.pixList[ichan].setVisible(True)
-                    if self.DETECTOR_PIX_STR == self.DETECTOR_SUM_STR:
+            for idet, DETECTOR_PIX_STR in enumerate(self.DETECTOR_PIX_TUPLE):
+                self.pixTab.setTabText(idet, f"{self.DETECTOR_SUM_TUPLE[idet]}")
+                self.pixTab.setTabEnabled(idet, True)
+    
+                for ichan in range(32):
+                    self.pixList[idet][ichan].setVisible(False)
+    
+                for ichan in range(32):
+                    pixStr = DETECTOR_PIX_STR.format(ichan+1)
+                    if pixStr in self.scanGroup.keys():
+                        okstate = False if np.isnan(np.sum(np.array(
+                            self.scanGroup[pixStr]))) else True
+                        if self.pixList[idet][ichan].checkState() and okstate:  # and ichan not in [4,5,6,7,15]:
+                            self.totalSum += np.array(self.scanGroup[pixStr])
+                        self.pixList[idet][ichan].setVisible(True)
+                        if DETECTOR_PIX_STR == self.DETECTOR_SUM_TUPLE[idet]:
+                            break
+                    else:
                         break
-                else:
-                    break
-
-            self.slider.setRange(0, ichan)
-            self.pixEdit.validator().setRange(0, ichan)
+            self.slider.setRange(0, ichan+1)
+            self.pixEdit.validator().setRange(0, ichan+1)
             self.ch1arr = (self.ch1[:, np.newaxis]*np.ones_like(ch4))
             self.sumChannel = self.totalSum / self.ch1arr
 #            self.sumChannel /= np.max(self.sumChannel)
@@ -1678,8 +1702,8 @@ class Ge32Explorer(QtGui.QMainWindow):
                         self.roiPanels[iroi].roiRButton.setText(str(roiname))
                         self.roiPanels[iroi].setVisible(True)
                         lastroi = int(iroi)+1
-                    for ichan in range(32-lastroi):
-                        self.roiPanels[ichan+lastroi].setVisible(False)                        
+                    for roichan in range(16-lastroi):
+                        self.roiPanels[roichan+lastroi].setVisible(False)                        
 
                     self.currentROIPanel = self.roiPanels[0]
                     self.currentROIPanel.roiRButton.setChecked(True)
@@ -1705,14 +1729,15 @@ class Ge32Explorer(QtGui.QMainWindow):
             self.edgeEdit.setText("{:.2f}".format(edgePos))
             self.plot_lines(edgePos, 0)
 
-    def add_pix_cb(self, ipix):
+    def add_pix_cb(self, idet, ipix):
             row = ipix // 8
             col = ipix - row * 8
             pix = QtGui.QCheckBox(str(ipix+1))
             pix.setChecked(True)
             pix.stateChanged.connect(self.recalculate_sum)
-            self.pixLayout.addWidget(pix, row, col)
-            self.pixList.append(pix)
+#            layout.addWidget(pix, row, col)
+            self.pixLayout[idet].addWidget(pix, row, col)
+            self.pixList[idet].append(pix)
 
     def plot_lines(self, energy, mode):
         if mode:
@@ -1738,8 +1763,11 @@ class Ge32Explorer(QtGui.QMainWindow):
 
     def show_frame(self, ichan):
         self.pixEdit.setText(str(ichan))
-        pixStr = self.DETECTOR_PIX_STR.format(ichan) if ichan > 0 else\
-            self.DETECTOR_SUM_STR
+        currentDet = self.pixTab.currentIndex()
+#        print(currentDet, ichan)
+        pixStr = self.DETECTOR_PIX_TUPLE[currentDet].format(ichan) if ichan > 0 else\
+            self.DETECTOR_SUM_TUPLE[currentDet]
+
         if not pixStr in self.scanGroup:
             return
         fluolen = self.totalSum.shape[1]
@@ -1769,7 +1797,7 @@ class Ge32Explorer(QtGui.QMainWindow):
         self.im.set_data(interpData)
         self.im.set_cmap('jet')
 
-        print(pixStr)
+#        print(pixStr)
         self.mplAx.set_title(pixStr)
         self.mplFig.canvas.draw()
         self.mplFig.canvas.blit()
