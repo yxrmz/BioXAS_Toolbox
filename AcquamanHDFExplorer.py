@@ -1230,36 +1230,59 @@ class Ge32Explorer(QtGui.QMainWindow):
         lw.setLayout(l)
 
 
-        self.slider = QtGui.QSlider(QtCore.Qt.Horizontal)
-        self.slider.setRange(0, DETECTOR_NCHANNELS)
-        self.slider.setTickInterval(1)
-        try:
-            self.slider.setTickPosition(QtGui.QSlider.TicksAbove)
-        except:
-            print("slider: unknown settings")
-        
+        scaleValidator = QtGui.QIntValidator()
+        scaleValidator.setRange(0, DETECTOR_NCHANNELS)
         pixTab = QtGui.QTabWidget()
 #        pixPanel = QtGui.QGroupBox()
 #        pixPanel.setTitle('MCA Detector channels')
-        self.pixLayout = [0]*MAX_DETECTORS
+        self.pixLayout = []
         self.pixList = [[]]
+        self.slider = []
+        self.pixEdit = []
+        
         for idet in range(MAX_DETECTORS):
+            detLayout = QtGui.QVBoxLayout()
+            self.slider.append(QtGui.QSlider(QtCore.Qt.Horizontal))
+            self.slider[idet].setRange(0, DETECTOR_NCHANNELS)
+            self.slider[idet].setTickInterval(1)
+            self.slider[idet].valueChanged.connect(self.show_frame)
+            self.pixEdit.append(QtGui.QLineEdit('0'))
+            self.pixEdit[idet].editingFinished.connect(lambda: self.slider[idet].setValue(
+                    int(self.pixEdit[idet].text())))
+            self.pixEdit[idet].setMaximumWidth(50)
+            self.pixEdit[idet].setValidator(scaleValidator)
+            hlayout = QtGui.QHBoxLayout()
+            hlayout.addWidget(self.slider[idet])
+            hlayout.addWidget(self.pixEdit[idet])
+            try:
+                self.slider[idet].setTickPosition(QtGui.QSlider.TicksAbove)
+            except:
+                print("slider: unknown settings")
             pixPanel = QtGui.QWidget()
-            self.pixLayout[idet] = QtGui.QGridLayout()
+            self.pixLayout.append(QtGui.QGridLayout())
+            
+            detLayout.addLayout(hlayout)
             for ipix in range(32):
                 self.add_pix_cb(idet, ipix)
             for ipix in range(31):
                 self.pixList[idet][ipix+1].setVisible(False)
             self.pixList.append([])
-            pixPanel.setLayout(self.pixLayout[idet])
+            detLayout.addLayout(self.pixLayout[idet])
+            pixPanel.setLayout(detLayout)
             pixPanel.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Fixed)
             pixTab.addTab(pixPanel, "")
             if idet > 0:
                 pixTab.setTabEnabled(idet, False)
+#            tabBarCB = QtGui.QCheckBox("")
+#            tabBarCB
+        pixTab.setSizePolicy(QtGui.QSizePolicy.Expanding,
+                             QtGui.QSizePolicy.Fixed)
         self.pixTab = pixTab            
 
         self.mplFig = Figure()
         self.mplAx = self.mplFig.add_subplot(111)
+        mplWidget = QtGui.QWidget()
+        mplLayout = QtGui.QVBoxLayout()
         paletteWidget = FigureCanvas(self.mplFig)
         self.load_data(None)
 
@@ -1270,24 +1293,14 @@ class Ge32Explorer(QtGui.QMainWindow):
                                     interpolation='none',
                                     origin='lower')
 
-        self.slider.valueChanged.connect(self.show_frame)
-        self.addToolBar(NavigationToolbar(paletteWidget, self))
+#        self.addToolBar(NavigationToolbar(paletteWidget, self))
+        mplLayout.addWidget(NavigationToolbar(paletteWidget, self))
         self.pixDataReady.connect(self.exafs_monitor.dataReceiver.hdf_data_listener)
         self.span = SpanSelector(self.mplAx, self.onROIselect, 'vertical',
                                  useblit=True, rectprops=dict(alpha=0.3,
                                                               facecolor='white'),
                                  button=1)
-        scaleValidator = QtGui.QIntValidator()
-        scaleValidator.setRange(0, DETECTOR_NCHANNELS)
-        self.pixEdit = QtGui.QLineEdit('0')
-        self.pixEdit.editingFinished.connect(lambda: self.slider.setValue(
-                int(self.pixEdit.text())))
-        self.pixEdit.setMaximumWidth(50)
-        self.pixEdit.setValidator(scaleValidator)
-        hlayout = QtGui.QHBoxLayout()
-        hlayout.addWidget(self.slider)
-        hlayout.addWidget(self.pixEdit)
-        l.addLayout(hlayout)
+
         
         infoWidget = QtGui.QGroupBox()
         vlayout = QtGui.QVBoxLayout()
@@ -1403,7 +1416,9 @@ class Ge32Explorer(QtGui.QMainWindow):
         hsplit.setChildrenCollapsible(False)
         hsplit.setOrientation(QtCore.Qt.Horizontal)
         hsplit.setLayout(hlayout)
-        hlayout.addWidget(paletteWidget)
+        mplLayout.addWidget(paletteWidget)
+        mplWidget.setLayout(mplLayout)
+        hlayout.addWidget(mplWidget)
         hlayout.addWidget(infoWidget)
 #        l.addWidget(pixPanel)
         l.addWidget(pixTab)
@@ -1439,11 +1454,12 @@ class Ge32Explorer(QtGui.QMainWindow):
 
     def updateEnergyAxis(self, state):
         sender = self.sender()
+        currentDet = self.pixTab.currentIndex()
         if str(sender.text()).startswith("eV"):
             self.mapEax = 0
         else:
             self.mapEax = 1
-        self.show_frame(self.slider.value())
+        self.show_frame(self.slider[currentDet].value())
 
     def exportToASCII(self):
         header = """XDI/1.0\nEndstation\nBioXAS Beamline - Main Endstation\n\n"""
@@ -1502,7 +1518,7 @@ class Ge32Explorer(QtGui.QMainWindow):
         self.send_to_monitor()
         self.sumChannel = self.totalSum / self.ch1arr
 #        self.sumChannel /= np.max(self.sumChannel)
-        if int(self.pixEdit.text()) == 0:
+        if int(self.pixEdit[currentDet].text()) == 0:
             self.show_frame(0)
 
     def send_to_monitor(self):
@@ -1681,12 +1697,12 @@ class Ge32Explorer(QtGui.QMainWindow):
                             break
                     else:
                         break
-            self.slider.setRange(0, ichan+1)
-            self.pixEdit.validator().setRange(0, ichan+1)
+                self.slider[idet].setRange(0, ichan+1)
+                self.pixEdit[idet].validator().setRange(0, ichan+1)
             self.ch1arr = (self.ch1[:, np.newaxis]*np.ones_like(ch4))
             self.sumChannel = self.totalSum / self.ch1arr
 #            self.sumChannel /= np.max(self.sumChannel)
-            currentPix = int(self.pixEdit.text())
+            currentPix = int(self.pixEdit[0].text())
             self.show_frame(currentPix)
 
             try:
@@ -1762,8 +1778,8 @@ class Ge32Explorer(QtGui.QMainWindow):
         self.mplFig.canvas.blit()
 
     def show_frame(self, ichan):
-        self.pixEdit.setText(str(ichan))
         currentDet = self.pixTab.currentIndex()
+        self.pixEdit[currentDet].setText(str(ichan))
 #        print(currentDet, ichan)
         pixStr = self.DETECTOR_PIX_TUPLE[currentDet].format(ichan) if ichan > 0 else\
             self.DETECTOR_SUM_TUPLE[currentDet]
