@@ -42,7 +42,11 @@ Run the script, the use the directory tree on the left to navigate to your HDF5 
 All ROIs created in Acquaman for the scan will be present in the ROI table. If no ROI was defined for the scan some arbitrary settings will be used. Red horizontal line will denote the emission peak position, yellow vertical line will be drawn at the absorption edge.
 Use the matplotlib toolbar to zoom in and out. Default mouse click action (if no tool is enabled in the toolbar) is ROI selection. For better precision use the ROI panel to define the bounds.
 
+![HDF explorer](explorer_main_window.png)
+
 EXAFS monitor (opens in separate window) will interactively show the counts (I0, I1, Fluo_in_ROI), mu(E) and even chi(k). Sum over all enabled pixels is used for the fluo curve, therefore you see right away what this or that pixel does with your EXAFS.
+
+![EXAFS_view](exafs_view.png)
 
 Once all bad pixels are disabled and the best ROI is identified, it's time to export the result into ASCII. To do that just set the file name and press the button in the Export panel (export status available in the terminal, let me know if you need a visible confirmation).
 
